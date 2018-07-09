@@ -24,6 +24,7 @@ import { RGBAImage } from '../util/image';
 import { Event, ErrorEvent } from '../util/evented';
 import { MapMouseEvent } from './events';
 import TaskQueue from '../util/task_queue';
+import { postTurnstileEvent } from '../util/mapbox';
 
 import type {LngLatLike} from '../geo/lng_lat';
 import type {LngLatBoundsLike} from '../geo/lng_lat_bounds';
@@ -391,6 +392,8 @@ class Map extends Camera {
 
         this.on('data', this._onData);
         this.on('dataloading', this._onDataLoading);
+
+        postTurnstileEvent();
     }
 
     /**

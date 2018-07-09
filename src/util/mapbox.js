@@ -3,6 +3,9 @@
 import config from './config';
 
 import browser from './browser';
+import window from './window';
+import { version } from '../../package.json';
+import { uuid, validateUuid, storageAvailable } from './util';
 
 const help = 'See https://www.mapbox.com/api-documentation/#access-tokens';
 
@@ -119,3 +122,63 @@ function formatUrl(obj: UrlObject): string {
     const params = obj.params.length ? `?${obj.params.join('&')}` : '';
     return `${obj.protocol}://${obj.authority}${obj.path}${params}`;
 }
+
+export const postTurnstileEvent = function() {
+    if (!config.ACCESS_TOKEN) return;
+    const localStorageAvailable = storageAvailable('localSotorage');
+
+    let anonId = null;
+    let lastUpdateTime = null;
+    //Retrieve cached data
+    if (localStorageAvailable) {
+        const data = window.localStorage.getItem('mapbox.userTurnstileData');
+        if (data) {
+            const json = JSON.parse(data);
+            anonId = json.anonId;
+            lastUpdateTime = json.lastSuccess;
+        }
+    }
+
+    if (!validateUuid(anonId)) {
+        anonId = uuid();
+    }
+
+    // Record turnstile event once per calendar day.
+    if (lastUpdateTime) {
+        const lastUpdate = new Date(Number(lastUpdateTime));
+        const now = new Date();
+        const daysElapsed = (+now - lastUpdate) / (24 * 60 * 60 * 1000);
+        // In case its the same day of the month, check the actual time elapsed.
+        if (lastUpdate.getDate() === now.getDate() && daysElapsed >= 0 && daysElapsed < 1) {
+            return;
+        }
+    }
+
+    const evenstUrlObject: UrlObject = parseUrl(config.EVENTS_URL);
+    evenstUrlObject.params.push(`access_token=${config.ACCESS_TOKEN || ''}`);
+    const eventsUrl = formatUrl(evenstUrlObject);
+
+    const xhr: XMLHttpRequest = new window.XMLHttpRequest();
+    xhr.open('POST', eventsUrl, true);
+    xhr.setRequestHeader('Content-Type', 'text/plain'); //Skip the pre-flight OPTIONS request
+
+    //On a successful ping, update the last update time stamp
+    xhr.onreadystatechange = function() {
+        if (localStorageAvailable &&
+            this.readyState === 4 /* DONE */ && this.status === 200 || this.status === 204) {
+            window.localStorage.setItem('mapbox.userTurnstileData', JSON.stringify({
+                lastSuccess: Date.now(),
+                anonId: anonId
+            }));
+        }
+    };
+
+    xhr.send(JSON.stringify([{
+        event: 'appUserTurnstile',
+        created: (new Date()).toISOString(),
+        sdkIdentifier: 'mapbox-gl-js',
+        sdkVersion: `${version}`,
+        'enabled.telemetry': false,
+        userId: anonId
+    }]));
+};
